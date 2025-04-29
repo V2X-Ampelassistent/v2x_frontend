@@ -17,15 +17,16 @@ socket.on('message', (data) => {
 });
 
 socket.on('gps_data', (data) => {
-  console.log('Message from server:', data);
   data = JSON.parse(data);
-  console.log('Parsed data:', data);
+  console.log('Parsed GPS data:', data);
 
   egoVehicle.setLatLng([data.latitude, data.longitude]);
-  map.panTo([data.latitude, data.longitude], {
-    animate: true,
-    duration: 0.2
-  });
+
+  // Follow GPS
+  // map.panTo([data.latitude, data.longitude], {
+  //   animate: true,
+  //   duration: 0.2
+  // });
 });
 
 // Emit a custom event to the server
@@ -45,3 +46,37 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 // Add Ego vehicle marker
 var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 8, fillOpacity: 0.5 }).addTo(map);
 // var egoVehicle = L.marker([47.6644544, 9.491444]).addTo(map);
+
+
+var intersections = {}
+
+socket.on('lane_paths', (data) => {
+  data = JSON.parse(data);
+  console.log('Parsed lane path data:', data);
+
+  // data = {
+  //   "id": intersection.id, 
+  //   "refPoint": intersection.refPoint,
+  //   "lanes": []
+  //   }
+
+  if (intersections[data.id]) {
+    return;
+  }
+
+  intersections[data.id] = [];
+
+  // Add intersection number
+  // let pop = L.popup()
+  //   .setLatLng([data.refPoint.lat / 10000000, data.refPoint.lon / 10000000])
+  //   .setContent(data.id)
+  //   .openOn(map);
+
+
+
+  for (let i = 0; i < data.lanes.length; i++) {
+    intersections[data.id].push(L.polyline(data.lanes[i], { color: 'blue', radius: 5, fillOpacity: 0.5 }).addTo(map));
+  }
+
+}
+)

@@ -1,6 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
+import v2x_cohdainterfaces.msg as v2xmsg
+
+import v2x_frontend.map_models as models
 
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -9,6 +12,8 @@ import json
 import logging
 from threading import Lock
 
+
+Map = dict()
 
 class v2x_frontend_server(Node):
     def __init__(self):
@@ -32,27 +37,26 @@ class v2x_frontend_server(Node):
         self.socketio.on_event('connect', self.handle_connect)
         self.socketio.on_event('disconnect', self.handle_disconnect)
         self.socketio.on_event('message', self.handle_message)
-        self.socketio.on_event('gps_data', self.handle_gps_data)
         
         # Start ROS 2 subscription
         self.GPS_subscription = self.create_subscription(
             NavSatFix,
             'Cohda_Signals/GPS',
-            self.listener_callback,
+            self.gps_callback,
             10
         )
 
         self.MAPEM_subscription = self.create_subscription(
-            NavSatFix,
+            v2xmsg.Mapem,
             'Cohda_Signals/MAPEM',
-            self.listener_callback,
+            self.mapem_callback,
             10
         )
 
         self.SPATEM_subscription = self.create_subscription(
-            NavSatFix,
+            v2xmsg.Spatem,
             'Cohda_Signals/SPATEM',
-            self.listener_callback,
+            self.spatem_callback,
             10
         )
         
@@ -75,11 +79,9 @@ class v2x_frontend_server(Node):
         self.get_logger().info(f'Received message: {data}')
         self.socketio.emit('message', f'Server received: {data}')
 
-    def handle_gps_data(self, data):
-        self.get_logger().info(f'Received GPS data from client: {data}')
-        # Process the GPS data here if needed
 
-    def listener_callback(self, msg):
+    # Callbacks
+    def gps_callback(self, msg):
         self.get_logger().info(f"Received GPS data from ROS: {msg.latitude}, {msg.longitude}")
         data = {
             "latitude": msg.latitude,
@@ -88,6 +90,35 @@ class v2x_frontend_server(Node):
         }
         self.socketio.emit('gps_data', json.dumps(data))
         
+    def mapem_callback(self, msg):
+        for intersection in msg.map.intersections.intersectiongeometrylist:
+            intersection: v2xmsg.Intersectiongeometry
+            intersectionID: int = intersection.id.id.intersectionid
+            Map[intersectionID] = models.Intersection(intersection)
+            
+            self.get_logger().info(f"Intersection ID: {intersectionID}")
+            # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
+
+        # Emit the Lane path to the client
+        for intersection in Map.values():
+            paths = {
+                "id": intersection.id, 
+                "refPoint": intersection.refPoint,
+                "lanes": []
+                }
+            for lane in intersection.lanes.values():
+                lane: models.Lane
+                if not lane.laneType.vehicle:
+                    continue
+
+                path = lane.get_path()
+                self.get_logger().info(f"Lane path: {path}")
+                paths["lanes"].append(path)
+            self.socketio.emit('lane_paths', json.dumps(paths))
+
+    def spatem_callback(self, msg):
+        # self.get_logger().info(f"Received SPATEM data from ROS: {msg}")
+        pass
 
 
     def run_flask(self):
