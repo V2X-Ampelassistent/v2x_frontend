@@ -1,4 +1,5 @@
 import v2x_cohdainterfaces.msg as v2xmsg
+import math
 
 
 class Intersection:
@@ -49,7 +50,7 @@ class Lane:
 
             for node in node_list:
                 node: v2xmsg.Nodexy
-                self.nodes.append(Node(node))
+                self.nodes.append(Node(node, refPoint))
 
         self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
 
@@ -80,7 +81,7 @@ class Lane:
         return path
 
 class Node:
-    def __init__(self, node_data: v2xmsg.Nodexy):
+    def __init__(self, node_data: v2xmsg.Nodexy, refPoint: dict):
         delta = node_data.delta
         self.deltaX = None
         self.deltaY = None
@@ -112,11 +113,18 @@ class Node:
             self.deltaY = delta.node_xy6[0].y.offset_b16
         else:
             raise ValueError("Node data is not in the expected format")
+        
 
-    def set_absolute_position(self, ref_x: float, ref_y: float):
+        # Calculate the delta meters in delta degrees
         if self.deltaX is not None and self.deltaY is not None:
-            self.lon = ref_x + self.deltaX
-            self.lat = ref_y + self.deltaY
+            ref_lat = refPoint["lat"] / 10000000  # Convert to degrees
+            self.deltaLat = self.deltaY / 1.11320  # Approx. meters per degree latitude
+            self.deltaLon = self.deltaX / (1.11320 * math.cos(math.radians(ref_lat)))
+
+    def set_absolute_position(self, ref_lon: float, ref_lat: float):
+        if self.deltaX is not None and self.deltaY is not None:
+            self.lon = ref_lon + self.deltaLon
+            self.lat = ref_lat + self.deltaLat
 
 class ConnectsTo:
     def __init__(self, connection_data: v2xmsg.Connection):

@@ -37,14 +37,22 @@ function sendMessageToServer(message) {
 
 // leaflet map;
 var map = L.map('map').setView([47.6644544, 9.491444], 13);
-// Add a tile layer to the map
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-}).addTo(map);
 
+// Add a tile layer to the map
+osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+});
+
+googleHybrid = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}',{
+  maxZoom: 20,
+  subdomains:['mt0','mt1','mt2','mt3']
+});
+
+// googleHybrid.addTo(map);
+osm.addTo(map);
 
 // Add Ego vehicle marker
-var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 8, fillOpacity: 0.5 }).addTo(map);
+var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 5, fillOpacity: 0.5 }).addTo(map);
 // var egoVehicle = L.marker([47.6644544, 9.491444]).addTo(map);
 
 
@@ -77,6 +85,4 @@ socket.on('lane_paths', (data) => {
   for (let i = 0; i < data.lanes.length; i++) {
     intersections[data.id].push(L.polyline(data.lanes[i], { color: 'blue', radius: 5, fillOpacity: 0.5 }).addTo(map));
   }
-
-}
-)
+})
