@@ -86,7 +86,6 @@ class v2x_frontend_server(Node):
         data = {
             "latitude": msg.latitude,
             "longitude": msg.longitude,
-            "altitude": msg.altitude
         }
         self.socketio.emit('gps_data', json.dumps(data))
         
@@ -94,27 +93,21 @@ class v2x_frontend_server(Node):
         for intersection in msg.map.intersections.intersectiongeometrylist:
             intersection: v2xmsg.Intersectiongeometry
             intersectionID: int = intersection.id.id.intersectionid
-            Map[intersectionID] = models.Intersection(intersection)
+
+            if intersectionID in Map:
+                Map[intersectionID].update(intersection)
+            else:
+                Map[intersectionID] = models.Intersection(intersection)
             
             self.get_logger().info(f"Intersection ID: {intersectionID}")
             # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
 
-        # Emit the Lane path to the client
-        for intersection in Map.values():
-            paths = {
-                "id": intersection.id, 
-                "refPoint": intersection.refPoint,
-                "lanes": []
-                }
-            for lane in intersection.lanes.values():
-                lane: models.Lane
-                if not lane.laneType.vehicle:
-                    continue
+            # Emit the Lane path to the client
+            self.socketio.emit('intersection', json.dumps(Map[intersectionID].export()))
 
-                path = lane.get_path()
-                self.get_logger().info(f"Lane path: {path}")
-                paths["lanes"].append(path)
-            self.socketio.emit('lane_paths', json.dumps(paths))
+        # for intersection in Map.values():
+        #     intersection_data = intersection.export()
+        #     self.socketio.emit('intersection', json.dumps(intersection_data))
 
     def spatem_callback(self, msg):
         # self.get_logger().info(f"Received SPATEM data from ROS: {msg}")

@@ -1,6 +1,8 @@
 // Establish a connection to the Socket.IO server
 const socket = io();
 
+var follow_gps = false;
+
 // Listen for the 'connect' event
 socket.on('connect', () => {
   console.log('Connected to the server');
@@ -23,10 +25,12 @@ socket.on('gps_data', (data) => {
   egoVehicle.setLatLng([data.latitude, data.longitude]);
 
   // Follow GPS
-  // map.panTo([data.latitude, data.longitude], {
-  //   animate: true,
-  //   duration: 0.2
-  // });
+  if (follow_gps) {
+    map.panTo([data.latitude, data.longitude], {
+      animate: true,
+      duration: 0.2
+    });
+  }
 });
 
 // Emit a custom event to the server
@@ -43,46 +47,85 @@ osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
 });
 
-googleHybrid = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}',{
+googleHybrid = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
   maxZoom: 20,
-  subdomains:['mt0','mt1','mt2','mt3']
+  subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
 });
 
-// googleHybrid.addTo(map);
-osm.addTo(map);
+googleHybrid.addTo(map);
+// osm.addTo(map);
 
 // Add Ego vehicle marker
-var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 5, fillOpacity: 0.5 }).addTo(map);
+var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 4, fillOpacity: 0.5 }).addTo(map);
 // var egoVehicle = L.marker([47.6644544, 9.491444]).addTo(map);
 
 
-var intersections = {}
+var intersection_elements = {};
+var intersection_popups = [];
 
-socket.on('lane_paths', (data) => {
-  data = JSON.parse(data);
-  console.log('Parsed lane path data:', data);
+socket.on('intersection', (intersection_data) => {
+  intersection_data = JSON.parse(intersection_data);
+  console.log('Parsed intersection data:', intersection_data);
 
-  // data = {
-  //   "id": intersection.id, 
-  //   "refPoint": intersection.refPoint,
-  //   "lanes": []
-  //   }
+  let id = intersection_data.id;
+  let ref_point = intersection_data.ref_point;
+  let lanes = intersection_data.lanes;
 
-  if (intersections[data.id]) {
-    return;
+  if (intersection_elements[id]) {
+    // Remove lanes
+    for (let i = 0; i < intersection_elements[id].polyline.length; i++) {
+      map.removeLayer(intersection_elements[id].polyline[i]);
+    }
+    intersection_elements[id].polyline = [];
+
+  } else {
+    // Create a popup for the new intersection
+    let popup = L.popup(
+      {
+        autoClose: false,
+        closeOnClick: false,
+      })
+      .setLatLng(ref_point)
+      .setContent(`Intersection ID: ${id}`)
+      // .openOn(map);
+
+    intersection_popups.push(popup);
+
+    // place to store the intersection elements
+    intersection_elements[id] = {
+      polyline: [],
+    }
   }
 
-  intersections[data.id] = [];
+  // color = randomcolor();
+  color = "#00FFFF";
 
-  // Add intersection number
-  // let pop = L.popup()
-  //   .setLatLng([data.refPoint.lat / 10000000, data.refPoint.lon / 10000000])
-  //   .setContent(data.id)
-  //   .openOn(map);
+  // Create a polyline for the intersection
+  for (let i = 0; i < lanes.path.length; i++) {
+    let lane_path = lanes.path[i]
 
-
-
-  for (let i = 0; i < data.lanes.length; i++) {
-    intersections[data.id].push(L.polyline(data.lanes[i], { color: 'blue', radius: 5, fillOpacity: 0.5 }).addTo(map));
+    // Create a polyline for the lane
+    let lane_polyline = L.polyline(lane_path, { color: color, weight: 2 }).addTo(map);
+    intersection_elements[id].polyline.push(lane_polyline);
   }
-})
+});
+
+
+function randomcolor() {
+  var letters = '0123456789ABCDEF';
+  var color = '#';
+  for (var i = 0; i < 6; i++) {
+    color += letters[Math.floor(Math.random() * 16)];
+  }
+  return color;
+}
+
+let follow_gps_button = document.getElementById("follow_gps");
+follow_gps_button.addEventListener("click", function () {
+  follow_gps = !follow_gps;
+  if (follow_gps) {
+    follow_gps_button.innerHTML = "Stop following GPS";
+  } else {
+    follow_gps_button.innerHTML = "Follow GPS";
+  }
+});

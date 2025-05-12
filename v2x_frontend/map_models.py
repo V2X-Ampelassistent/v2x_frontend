@@ -11,61 +11,103 @@ class Intersection:
             "lat": intersection_data.refpoint.lat.latitude,
             "elevation": intersection_data.refpoint.elevation.elevation,
         }
-
-        self.laneWidth = intersection_data.lanewidth.lanewidth
-
+        
         self.lanes = {lane.laneid.laneid: Lane(lane, self.refPoint) for lane in intersection_data.laneset.lanelist}
 
-        self.timeStamp = None
-        self.moy = None
         self.signalGroups = {}
 
-    # Todo: Convert to ROS Message
     def add_spat(self, data: dict):
         """Add SPaT data to the Intersection"""
         pass
 
-    # Todo: Convert to ROS Message
-    def update(self, data: dict):
+    def update(self, intersection_data: v2xmsg.Intersectiongeometry):
         """Update the Intersection with new data"""
-        pass
+
+        self.refPoint = {
+            "lon": intersection_data.refpoint.lon.longitude,
+            "lat": intersection_data.refpoint.lat.latitude,
+            "elevation": intersection_data.refpoint.elevation.elevation,
+        }
+
+        for lane in intersection_data.laneset.lanelist:
+            lane: v2xmsg.Lane
+            lane_id = lane.laneid.laneid
+            if lane_id not in self.lanes:
+                self.lanes[lane_id] = Lane(lane, self.refPoint)
+            else:
+                self.lanes[lane_id].update(lane, self.refPoint)
+
+    def export(self) -> dict:
+        """Export the intersection as a leaflet object"""
+        intersection_export = {
+            "id": self.id,
+        }
+        refPoint_lat_lon = (self.refPoint["lat"] / 10000000, self.refPoint["lon"] / 10000000)
+        intersection_export["ref_point"] = refPoint_lat_lon
+        intersection_export["lanes"] = {
+            "path": [lane.get_path() for lane in self.lanes.values()]
+        }
+        return intersection_export
 
 
 class Lane:
     def __init__(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
         self.LaneID = lane_data.laneid.laneid
-        self.ingressApproach = lane_data.ingressapproach.approachid
 
+        self.ingressApproach = lane_data.ingressapproach.approachid
         self.directionalUse_egressPath = lane_data.laneattributes.directionaluse.egresspath
         self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath
+        self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
 
+        self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
+        self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
+
+        self.refPoint = refPoint
+
+        self.nodes = self.create_node_(lane_data.nodelist.nodes)	
+        self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
+
+        
+    def update(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
+        """Update the lane with new data"""
         self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
 
         self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
 
-        self.nodes = list()
-        for node_set_xy in lane_data.nodelist.nodes:
+        self.refPoint = refPoint
+
+        # Update nodes and connectsTo
+        self.nodes = self.create_node_(lane_data.nodelist.nodes)
+
+        self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
+    
+    def create_node_(self, node_data: list) -> list:
+        """
+        Create a node from the node data
+        param node_data: list of v2xmsg.Nodesetxy
+        """
+        
+        computed_nodes = list()
+        for node_set_xy in node_data:
             node_set_xy: v2xmsg.Nodesetxy
             node_list = node_set_xy.nodesetxy
 
             for node in node_list:
                 node: v2xmsg.Nodexy
-                self.nodes.append(Node(node, refPoint))
-
-        self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
-
-        self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
+                computed_nodes.append(Node(node, self.refPoint))
 
         # Set the absolute position of the nodes
         prev_node = None
-        for node in self.nodes:
+        for node in computed_nodes:
             node: Node
             if prev_node:
                 node.set_absolute_position(prev_node.lon, prev_node.lat)
             else:
-                node.set_absolute_position(refPoint["lon"], refPoint["lat"])
+                node.set_absolute_position(self.refPoint["lon"], self.refPoint["lat"])
             prev_node = node
-    
+        
+        return computed_nodes
+
     def get_path(self):
         """Get the path of the lane
         Returns a list of tuples (lat, lon) representing the path of the lane.
@@ -91,11 +133,9 @@ class Node:
         if delta.node_latlon:
             self.lat = delta.node_latlon[0].lat.latitude
             self.lon = delta.node_latlon[0].lon.longitude
-
         elif delta.node_xy1:
             self.deltaX = delta.node_xy1[0].x.offset_b10
             self.deltaY = delta.node_xy1[0].y.offset_b10
-
         elif delta.node_xy2:
             self.deltaX = delta.node_xy2[0].x.offset_b11
             self.deltaY = delta.node_xy2[0].y.offset_b11
@@ -122,6 +162,9 @@ class Node:
             self.deltaLon = self.deltaX / (1.11320 * math.cos(math.radians(ref_lat)))
 
     def set_absolute_position(self, ref_lon: float, ref_lat: float):
+        if self.lat is not None and self.lon is not None:
+            return
+        
         if self.deltaX is not None and self.deltaY is not None:
             self.lon = ref_lon + self.deltaLon
             self.lat = ref_lat + self.deltaLat
