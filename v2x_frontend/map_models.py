@@ -1,6 +1,29 @@
 import v2x_cohdainterfaces.msg as v2xmsg
 import math
 
+class SignalGroup:
+    STATE_LOOKUP = {
+        "unavailable": "UNAVAILABLE",
+        "dark": "DARK",
+        "stop-then-proceed": "STOP",
+        "stop-and-remain": "RED",
+        "pre-movement": "RED_YELLOW",
+        "permissive-Movement-Allowed": "GREEN",
+        "protected-Movement-Allowed": "GREEN",
+        "permissive-clearance": "YELLOW",
+        "protected-clearance": "YELLOW",
+        "caution-conflicting-traffic": "YELLOW",
+    }
+
+    def __init__(self, signal_group_data: v2xmsg.Signalgroupid):
+        self.id = signal_group_data.signalgroupid
+        self.state = None
+
+    def update_state(self, state: v2xmsg.Movementphasestate):
+        self.state = SignalGroup.STATE_LOOKUP.get(state.movementphasestate.lower(), None)
+        if self.state is None:
+            print(f"Unknown state: {state.movementphasestate}")
+
 
 class Intersection:
     def __init__(self, intersection_data: v2xmsg.Intersectiongeometry):
@@ -16,8 +39,18 @@ class Intersection:
 
         self.signalGroups = {}
 
-    def add_spat(self, data: dict):
+    def update_spat(self, data: v2xmsg.Intersectionstate):
         """Add SPaT data to the Intersection"""
+        for movement in data.states.movementlist:
+            movement: v2xmsg.Movementstate
+            signalGroupID = movement.signalgroup.signalgroupid
+
+            movement_event: v2xmsg.Movementphasestate = movement.state_time_speed.movementeventlist[0]
+            if signalGroupID not in self.signalGroups:
+                self.signalGroups[signalGroupID] = SignalGroup(movement.signalgroup)
+            self.signalGroups[signalGroupID].update_state(movement_event.eventstate)
+
+
         pass
 
     def update(self, intersection_data: v2xmsg.Intersectiongeometry):
@@ -45,8 +78,34 @@ class Intersection:
         refPoint_lat_lon = (self.refPoint["lat"] / 10000000, self.refPoint["lon"] / 10000000)
         intersection_export["ref_point"] = refPoint_lat_lon
         intersection_export["lanes"] = {
-            "path": [lane.get_path() for lane in self.lanes.values()]
+            "path": [lane.export_path() for lane in self.lanes.values()],
+            "connections": []
         }
+
+        # export connections
+        for lane in self.lanes.values():
+            lane: Lane
+            for connect in lane.connectsTo:
+                connect: ConnectsTo
+                connectingLaneID = connect.connectingLaneID
+                if connectingLaneID not in self.lanes:
+                    continue
+
+                startpoint = (lane.nodes[0].lat / 10000000, lane.nodes[0].lon / 10000000)
+                endpoint = (self.lanes[connectingLaneID].nodes[0].lat / 10000000, self.lanes[connectingLaneID].nodes[0].lon / 10000000)
+
+                state = None
+                if connect.signalGroup in self.signalGroups.keys():
+                    signalGroup: SignalGroup = self.signalGroups[connect.signalGroup]
+                    state = signalGroup.state
+                
+                intersection_export["lanes"]["connections"].append({
+                    "startpoint": startpoint,
+                    "endpoint": endpoint,
+                    "state": state,
+                })
+
+
         return intersection_export
 
 
@@ -108,7 +167,7 @@ class Lane:
         
         return computed_nodes
 
-    def get_path(self):
+    def export_path(self):
         """Get the path of the lane
         Returns a list of tuples (lat, lon) representing the path of the lane.
         """
@@ -169,14 +228,9 @@ class Node:
             self.lon = ref_lon + self.deltaLon
             self.lat = ref_lat + self.deltaLat
 
-class ConnectsTo:
+class ConnectsTo:   
     def __init__(self, connection_data: v2xmsg.Connection):
         self.connectingLaneID = connection_data.connectinglane.lane.laneid
         self.maneuver: v2xmsg.Allowedmaneuvers = connection_data.connectinglane.maneuver
         self.connectionID = connection_data.connectionid.laneconnectionid
         self.signalGroup = connection_data.signalgroup.signalgroupid
-
-        self.state = None
-
-    def update_state(self, state):
-        self.state = state

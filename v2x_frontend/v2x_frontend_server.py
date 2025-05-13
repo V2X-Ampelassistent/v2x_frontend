@@ -109,8 +109,19 @@ class v2x_frontend_server(Node):
         #     intersection_data = intersection.export()
         #     self.socketio.emit('intersection', json.dumps(intersection_data))
 
-    def spatem_callback(self, msg):
-        # self.get_logger().info(f"Received SPATEM data from ROS: {msg}")
+    def spatem_callback(self, msg: v2xmsg.Spatem):
+        for intersection in msg.spat.intersections.intersectionstatelist:
+            intersection: v2xmsg.Intersection
+            intersectionID: int = intersection.id.id.intersectionid
+
+            if intersectionID in Map:
+                Map[intersectionID].update_spat(intersection)
+
+            self.get_logger().info(f"Intersection ID: {intersectionID}")
+            # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
+
+            # Emit the Lane path to the client
+
         pass
 
 
