@@ -52,12 +52,24 @@ googleHybrid = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}'
   subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
 });
 
-googleHybrid.addTo(map);
-// osm.addTo(map);
+// googleHybrid.addTo(map);
+osm.addTo(map);
 
 // Add Ego vehicle marker
 var egoVehicle = L.circle([47.6644544, 9.491444], { color: 'red', radius: 4, fillOpacity: 0.5 }).addTo(map);
 // var egoVehicle = L.marker([47.6644544, 9.491444]).addTo(map);
+
+//////// V2X INTERSECTION ////////////
+
+const STATE_LOOKUP = {
+  "RED": "red",
+  "YELLOW": "yellow",
+  "GREEN": "green",
+  "RED_YELLOW": "yellow",
+  "STOP": "orange",
+  "DARK": "black",
+  "UNAVAILABLE": "gray",
+}
 
 
 var intersection_elements = {};
@@ -76,7 +88,11 @@ socket.on('intersection', (intersection_data) => {
     for (let i = 0; i < intersection_elements[id].polyline.length; i++) {
       map.removeLayer(intersection_elements[id].polyline[i]);
     }
+    for (let i = 0; i < intersection_elements[id].connections.length; i++) {
+      map.removeLayer(intersection_elements[id].connections[i]);
+    }
     intersection_elements[id].polyline = [];
+    intersection_elements[id].connections = [];
 
   } else {
     // Create a popup for the new intersection
@@ -94,19 +110,35 @@ socket.on('intersection', (intersection_data) => {
     // place to store the intersection elements
     intersection_elements[id] = {
       polyline: [],
+      connections: [],
     }
   }
 
   // color = randomcolor();
-  color = "#00FFFF";
+  color = "#0000FF";
 
   // Create a polyline for the intersection
-  for (let i = 0; i < lanes.path.length; i++) {
-    let lane_path = lanes.path[i]
+  for (let i = 0; i < lanes.paths.length; i++) {
+    let lane_path = lanes.paths[i]
 
     // Create a polyline for the lane
     let lane_polyline = L.polyline(lane_path, { color: color, weight: 2 }).addTo(map);
     intersection_elements[id].polyline.push(lane_polyline);
+  }
+
+  // Create a line for connecting the lanes
+  for (let i = 0; i < lanes.connections.length; i++) {
+    let lane_connection = lanes.connections[i]
+    start = lane_connection.startpoint;
+    end = lane_connection.endpoint;
+    state = lane_connection.state;
+
+    color = STATE_LOOKUP[state];
+    if (color == undefined) {
+      color = "black";
+    }
+
+    intersection_elements[id].connections.push(L.polyline([start, end], { color: color, weight: 2 }).addTo(map));
   }
 });
 

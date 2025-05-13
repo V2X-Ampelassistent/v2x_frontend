@@ -5,14 +5,14 @@ class SignalGroup:
     STATE_LOOKUP = {
         "unavailable": "UNAVAILABLE",
         "dark": "DARK",
-        "stop-then-proceed": "STOP",
-        "stop-and-remain": "RED",
-        "pre-movement": "RED_YELLOW",
+        "stop-Then-Proceed": "STOP",
+        "stop-And-Remain": "RED",
+        "pre-Movement": "RED_YELLOW",
         "permissive-Movement-Allowed": "GREEN",
         "protected-Movement-Allowed": "GREEN",
-        "permissive-clearance": "YELLOW",
+        "permissive-Clearance": "YELLOW",
         "protected-clearance": "YELLOW",
-        "caution-conflicting-traffic": "YELLOW",
+        "caution-Conflicting-Traffic": "YELLOW",
     }
 
     def __init__(self, signal_group_data: v2xmsg.Signalgroupid):
@@ -20,14 +20,14 @@ class SignalGroup:
         self.state = None
 
     def update_state(self, state: v2xmsg.Movementphasestate):
-        self.state = SignalGroup.STATE_LOOKUP.get(state.movementphasestate.lower(), None)
+        self.state = SignalGroup.STATE_LOOKUP.get(state.movementphasestate, None)
         if self.state is None:
             print(f"Unknown state: {state.movementphasestate}")
 
 
 class Intersection:
-    def __init__(self, intersection_data: v2xmsg.Intersectiongeometry):
-        self.id = intersection_data.id.id.intersectionid
+    def __init__(self, intersection_data: v2xmsg.Intersectiongeometry, id: str):
+        self.id = id
 
         self.refPoint = {
             "lon": intersection_data.refpoint.lon.longitude,
@@ -78,13 +78,20 @@ class Intersection:
         refPoint_lat_lon = (self.refPoint["lat"] / 10000000, self.refPoint["lon"] / 10000000)
         intersection_export["ref_point"] = refPoint_lat_lon
         intersection_export["lanes"] = {
-            "path": [lane.export_path() for lane in self.lanes.values()],
+            "paths": [],
             "connections": []
         }
 
         # export connections
         for lane in self.lanes.values():
             lane: Lane
+            
+            if not lane.laneType.vehicle: 
+                continue
+
+            lanepath = lane.export_path()
+            intersection_export["lanes"]["paths"].append(lanepath)
+
             for connect in lane.connectsTo:
                 connect: ConnectsTo
                 connectingLaneID = connect.connectingLaneID
@@ -104,7 +111,6 @@ class Intersection:
                     "endpoint": endpoint,
                     "state": state,
                 })
-
 
         return intersection_export
 

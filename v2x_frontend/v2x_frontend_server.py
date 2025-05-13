@@ -89,15 +89,15 @@ class v2x_frontend_server(Node):
         }
         self.socketio.emit('gps_data', json.dumps(data))
         
-    def mapem_callback(self, msg):
+    def mapem_callback(self, msg: v2xmsg.Mapem):
         for intersection in msg.map.intersections.intersectiongeometrylist:
             intersection: v2xmsg.Intersectiongeometry
-            intersectionID: int = intersection.id.id.intersectionid
+            intersectionID: str = f"{msg.header.stationid.stationid}_{intersection.id.id.intersectionid}"
 
             if intersectionID in Map:
                 Map[intersectionID].update(intersection)
             else:
-                Map[intersectionID] = models.Intersection(intersection)
+                Map[intersectionID] = models.Intersection(intersection, intersectionID)
             
             self.get_logger().info(f"Intersection ID: {intersectionID}")
             # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
@@ -105,25 +105,17 @@ class v2x_frontend_server(Node):
             # Emit the Lane path to the client
             self.socketio.emit('intersection', json.dumps(Map[intersectionID].export()))
 
-        # for intersection in Map.values():
-        #     intersection_data = intersection.export()
-        #     self.socketio.emit('intersection', json.dumps(intersection_data))
-
     def spatem_callback(self, msg: v2xmsg.Spatem):
         for intersection in msg.spat.intersections.intersectionstatelist:
             intersection: v2xmsg.Intersection
-            intersectionID: int = intersection.id.id.intersectionid
+            intersectionID: str = f"{msg.header.stationid.stationid}_{intersection.id.id.intersectionid}"
 
             if intersectionID in Map:
                 Map[intersectionID].update_spat(intersection)
-
-            self.get_logger().info(f"Intersection ID: {intersectionID}")
-            # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
-
-            # Emit the Lane path to the client
-
-        pass
-
+                self.get_logger().info(f"SPaT data for Intersection ID: {intersectionID}")
+                self.socketio.emit('intersection', json.dumps(Map[intersectionID].export()))
+            else:
+                self.get_logger().warning(f"SPaT data received for unknown intersection ID: {intersectionID}")
 
     def run_flask(self):
         # Start the background task only after Flask is running
