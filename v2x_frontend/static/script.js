@@ -103,7 +103,7 @@ socket.on('intersection', (intersection_data) => {
       })
       .setLatLng(ref_point)
       .setContent(`Intersection ID: ${id}`)
-      // .openOn(map);
+    // .openOn(map);
 
     intersection_popups.push(popup);
 
@@ -114,31 +114,38 @@ socket.on('intersection', (intersection_data) => {
     }
   }
 
-  // color = randomcolor();
-  color = "#0000FF";
+
 
   // Create a polyline for the intersection
-  for (let i = 0; i < lanes.paths.length; i++) {
-    let lane_path = lanes.paths[i]
+  for (let i = 0; i < lanes.length; i++) {
+    let lane = lanes[i]
+    let lane_path = lane.path
+    let current_lane = lane.currentLane;
 
-    // Create a polyline for the lane
-    let lane_polyline = L.polyline(lane_path, { color: color, weight: 2 }).addTo(map);
-    intersection_elements[id].polyline.push(lane_polyline);
-  }
-
-  // Create a line for connecting the lanes
-  for (let i = 0; i < lanes.connections.length; i++) {
-    let lane_connection = lanes.connections[i]
-    start = lane_connection.startpoint;
-    end = lane_connection.endpoint;
-    state = lane_connection.state;
-
-    color = STATE_LOOKUP[state];
-    if (color == undefined) {
-      color = "black";
+    if (current_lane) {
+      path_color = "#FF00FF";
+    } else {
+      path_color = "blue";
     }
 
-    intersection_elements[id].connections.push(L.polyline([start, end], { color: color, weight: 2 }).addTo(map));
+    // Create a polyline for the lane
+    let lane_polyline = L.polyline(lane_path, { color: path_color, weight: 2 }).addTo(map);
+    intersection_elements[id].polyline.push(lane_polyline);
+
+    // Create a line for connecting the lanes
+    for (let i = 0; i < lane.connections.length; i++) {
+      let lane_connection = lane.connections[i]
+      start = lane_connection.startpoint;
+      end = lane_connection.endpoint;
+      state = lane_connection.state;
+
+      color = STATE_LOOKUP[state];
+      if (color == undefined) {
+        color = "black";
+      }
+
+      intersection_elements[id].connections.push(L.polyline([start, end], { color: color, weight: 2 }).addTo(map));
+    }
   }
 });
 

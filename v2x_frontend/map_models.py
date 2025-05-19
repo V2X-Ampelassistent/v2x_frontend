@@ -1,5 +1,8 @@
 import v2x_cohdainterfaces.msg as v2xmsg
+import numpy as np
 import math
+
+MAX_DETECTION_RADIUS = 10  # meters
 
 class SignalGroup:
     STATE_LOOKUP = {
@@ -11,6 +14,8 @@ class SignalGroup:
         "permissive-Movement-Allowed": "GREEN",
         "protected-Movement-Allowed": "GREEN",
         "permissive-Clearance": "YELLOW",
+        "permissive-clearance": "YELLOW",
+        "protected-Clearance": "YELLOW",
         "protected-clearance": "YELLOW",
         "caution-Conflicting-Traffic": "YELLOW",
     }
@@ -77,10 +82,11 @@ class Intersection:
         }
         refPoint_lat_lon = (self.refPoint["lat"] / 10000000, self.refPoint["lon"] / 10000000)
         intersection_export["ref_point"] = refPoint_lat_lon
-        intersection_export["lanes"] = {
-            "paths": [],
+        intersection_export["lanes"] = [{
+            "path": [],
+            "currentLane": False,
             "connections": []
-        }
+        }]
 
         # export connections
         for lane in self.lanes.values():
@@ -89,8 +95,12 @@ class Intersection:
             if not lane.laneType.vehicle: 
                 continue
 
-            lanepath = lane.export_path()
-            intersection_export["lanes"]["paths"].append(lanepath)
+            lane_export = {
+                "path": lane.export_path(),
+                "currentLane": lane.currentLane,
+                "connections": []
+            }
+                
 
             for connect in lane.connectsTo:
                 connect: ConnectsTo
@@ -106,45 +116,79 @@ class Intersection:
                     signalGroup: SignalGroup = self.signalGroups[connect.signalGroup]
                     state = signalGroup.state
                 
-                intersection_export["lanes"]["connections"].append({
+                lane_export["connections"].append({
                     "startpoint": startpoint,
                     "endpoint": endpoint,
                     "state": state,
                 })
 
+            intersection_export["lanes"].append(lane_export)
+
         return intersection_export
 
+    def get_distance_to_refpoint(self, point: tuple) -> float:
+        """Get the distance to the reference point"""
+        ref_lat = self.refPoint["lat"] / 10000000
+        ref_lon = self.refPoint["lon"] / 10000000
 
+        x_diff = (point[1] - ref_lon) * 11132 * math.cos(math.radians(ref_lat))  # Approx. meters per degree longitude
+        y_diff = (point[0] - ref_lat) * 11132  # Approx. meters per degree latitude 
+
+        return math.sqrt(x_diff**2 + y_diff**2)
+
+
+    def get_closest_lane(self, point: tuple):
+        """Get the closest lane to the given point"""
+        closest_lane = None
+        min_distance = float('inf')
+        for lane in self.lanes.values():
+            lane: Lane
+            if not lane.laneType.vehicle: 
+                continue
+
+            distance = lane.get_distance_to_point(point)
+            if distance < min_distance:
+                min_distance = distance
+                closest_lane = lane
+
+        if closest_lane is None:
+            return None, min_distance
+        
+        if min_distance > MAX_DETECTION_RADIUS:
+            return None, min_distance
+
+        closest_lane.currentLane = True
+
+        return closest_lane.LaneID, min_distance
+    
 class Lane:
     def __init__(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
+        self.refPoint = refPoint
         self.LaneID = lane_data.laneid.laneid
 
         self.ingressApproach = lane_data.ingressapproach.approachid
         self.directionalUse_egressPath = lane_data.laneattributes.directionaluse.egresspath
         self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath
         self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
-
         self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
         self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
-
-        self.refPoint = refPoint
-
         self.nodes = self.create_node_(lane_data.nodelist.nodes)	
         self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
 
+        self.currentLane = False
         
     def update(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
         """Update the lane with new data"""
         self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
-
         self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
-
         self.refPoint = refPoint
 
         # Update nodes and connectsTo
         self.nodes = self.create_node_(lane_data.nodelist.nodes)
-
         self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
+        
+        # reset the current lane, as the lane may have changed
+        self.currentLane = False
     
     def create_node_(self, node_data: list) -> list:
         """
@@ -186,6 +230,53 @@ class Lane:
                 lon = node.lon / 10000000
                 path.append((lat, lon))
         return path
+    
+    def get_distance_to_point(self, point: tuple) -> float:
+        """Get the distance between a lanesegment and a point, return the distance"""
+        min_distance = float('inf')
+        
+        path = self.export_path()
+        
+        prev_node = None
+        for node in path:
+            if prev_node is None:
+                prev_node = node
+                continue
+            # Calculate the distance from the point to the line segment
+            distance, is_on_segment = self.point_to_vector_distance(prev_node, node, point)
+            if not is_on_segment:
+                continue  # Skip if the projection is outside the segment
+            if distance < min_distance:
+                min_distance = distance
+
+        return min_distance
+
+    def point_to_vector_distance(self, start, end, point):
+        """Calculate the distance from a point to a line segment defined by start and end points.
+        Returns the distance and a boolean indicating if the point is on the segment.
+        ChatGPT Wrote this, i don't have any idea how it works, but it works.
+        """
+
+        start = np.array(start)
+        end = np.array(end)
+        point = np.array(point)
+
+        vec = end - start
+        point_vec = point - start
+
+        vec_length_squared = np.dot(vec, vec)
+        if vec_length_squared == 0:
+            return np.linalg.norm(point - start), False  # Start and end are the same
+
+        # Projection of point_vec onto vec
+        t = np.dot(point_vec, vec) / vec_length_squared
+        projection = start + t * vec
+
+        # Clamp t to [0, 1] to check if projection lies on the segment
+        is_on_segment = 0 <= t <= 1
+        distance = np.linalg.norm(point - projection)
+
+        return distance, is_on_segment
 
 class Node:
     def __init__(self, node_data: v2xmsg.Nodexy, refPoint: dict):
