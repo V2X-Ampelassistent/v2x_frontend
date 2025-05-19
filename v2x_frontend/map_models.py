@@ -2,7 +2,8 @@ import v2x_cohdainterfaces.msg as v2xmsg
 import numpy as np
 import math
 
-MAX_DETECTION_RADIUS = 10  # meters
+MAX_DETECTION_RADIUS = 5  # meters
+DEVIATION = 0.5  # Allowable deviation in radians
 
 class SignalGroup:
     STATE_LOOKUP = {
@@ -84,7 +85,6 @@ class Intersection:
         intersection_export["ref_point"] = refPoint_lat_lon
         intersection_export["lanes"] = [{
             "path": [],
-            "currentLane": False,
             "connections": []
         }]
 
@@ -95,9 +95,16 @@ class Intersection:
             if not lane.laneType.vehicle: 
                 continue
 
+            color = "#FF0800"
+            if lane.directionalUse_ingressPath:
+                color = "#0000FF"
+            elif lane.directionalUse_egressPath:
+                color = "#FF7F00"
+
             lane_export = {
+                "id": lane.LaneID,
                 "path": lane.export_path(),
-                "currentLane": lane.currentLane,
+                "color": color,
                 "connections": []
             }
                 
@@ -131,8 +138,8 @@ class Intersection:
         ref_lat = self.refPoint["lat"] / 10000000
         ref_lon = self.refPoint["lon"] / 10000000
 
-        x_diff = (point[1] - ref_lon) * 11132 * math.cos(math.radians(ref_lat))  # Approx. meters per degree longitude
-        y_diff = (point[0] - ref_lat) * 11132  # Approx. meters per degree latitude 
+        x_diff = (point[1] - ref_lon) * 111320 * math.cos(math.radians(ref_lat))  # Approx. meters per degree longitude
+        y_diff = (point[0] - ref_lat) * 111320  # Approx. meters per degree latitude 
 
         return math.sqrt(x_diff**2 + y_diff**2)
 
@@ -145,6 +152,9 @@ class Intersection:
             lane: Lane
             if not lane.laneType.vehicle: 
                 continue
+            
+            if lane.egressApproach:
+                continue
 
             distance = lane.get_distance_to_point(point)
             if distance < min_distance:
@@ -156,9 +166,7 @@ class Intersection:
         
         if min_distance > MAX_DETECTION_RADIUS:
             return None, min_distance
-
-        closest_lane.currentLane = True
-
+        
         return closest_lane.LaneID, min_distance
     
 class Lane:
@@ -167,16 +175,17 @@ class Lane:
         self.LaneID = lane_data.laneid.laneid
 
         self.ingressApproach = lane_data.ingressapproach.approachid
+        self.egressApproach = lane_data.egressapproach.approachid
+
         self.directionalUse_egressPath = lane_data.laneattributes.directionaluse.egresspath
         self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath
+        
         self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
         self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
         self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
         self.nodes = self.create_node_(lane_data.nodelist.nodes)	
         self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
 
-        self.currentLane = False
-        
     def update(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
         """Update the lane with new data"""
         self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
@@ -186,10 +195,7 @@ class Lane:
         # Update nodes and connectsTo
         self.nodes = self.create_node_(lane_data.nodelist.nodes)
         self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
-        
-        # reset the current lane, as the lane may have changed
-        self.currentLane = False
-    
+
     def create_node_(self, node_data: list) -> list:
         """
         Create a node from the node data
@@ -228,7 +234,12 @@ class Lane:
             if node.lat is not None and node.lon is not None:
                 lat = node.lat / 10000000
                 lon = node.lon / 10000000
-                path.append((lat, lon))
+                
+                direction = node.direction
+                if self.directionalUse_egressPath:
+                    direction = node.direction + math.pi
+
+                path.append((lat, lon, direction))
         return path
     
     def get_distance_to_point(self, point: tuple) -> float:
@@ -242,13 +253,22 @@ class Lane:
             if prev_node is None:
                 prev_node = node
                 continue
+            
+            # Check if direction is valid
+            if node[2] is not None and point[2] is not None:
+                if abs(node[2] - point[2]) > DEVIATION:
+                    prev_node = node
+                    continue
+
             # Calculate the distance from the point to the line segment
             distance, is_on_segment = self.point_to_vector_distance(prev_node, node, point)
             if not is_on_segment:
+                prev_node = node
                 continue  # Skip if the projection is outside the segment
             if distance < min_distance:
                 min_distance = distance
 
+            prev_node = node
         return min_distance
 
     def point_to_vector_distance(self, start, end, point):
@@ -257,12 +277,15 @@ class Lane:
         ChatGPT Wrote this, i don't have any idea how it works, but it works.
         """
 
-        start = np.array(start)
-        end = np.array(end)
-        point = np.array(point)
+        start = np.array(start)[:2]
+        end = np.array(end)[:2]
+        point = np.array(point)[:2]
 
-        vec = end - start
-        point_vec = point - start
+        vec = (end - start) * 11320  # Approx. meters per degree latitude 
+        vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
+
+        point_vec = (point - start) * 11320  # Approx. meters per degree latitude
+        point_vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
 
         vec_length_squared = np.dot(vec, vec)
         if vec_length_squared == 0:
@@ -285,6 +308,7 @@ class Node:
         self.deltaY = None
         self.lat = None
         self.lon = None
+        self.direction = None # direction always from the refPoint outwards
 
         if delta.node_latlon:
             self.lat = delta.node_latlon[0].lat.latitude
@@ -319,11 +343,13 @@ class Node:
 
     def set_absolute_position(self, ref_lon: float, ref_lat: float):
         if self.lat is not None and self.lon is not None:
+            self.direction = math.atan2(ref_lon - self.lon, ref_lat - self.lat)
             return
         
         if self.deltaX is not None and self.deltaY is not None:
             self.lon = ref_lon + self.deltaLon
             self.lat = ref_lat + self.deltaLat
+            self.direction = math.atan2(-self.deltaX, -self.deltaY)
 
 class ConnectsTo:   
     def __init__(self, connection_data: v2xmsg.Connection):

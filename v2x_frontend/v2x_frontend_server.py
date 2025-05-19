@@ -12,6 +12,9 @@ import json
 import logging
 from threading import Lock
 
+import math
+
+MAX_INTERSECTION_DISTANCE = 500  # meters
 
 class v2x_frontend_server(Node):
     def __init__(self):
@@ -61,8 +64,11 @@ class v2x_frontend_server(Node):
         self.get_logger().info("ROS2 node and subscription initialized")
 
         # variables
-        self.last_gps = None
+        self.last_gps_point = None
+        self.gps_direction = None
         self.Map = dict()
+        self.current_intersection_id = None
+        self.current_lane_id = None
 
 
     def get_logger(self):
@@ -86,28 +92,59 @@ class v2x_frontend_server(Node):
     # Callbacks
     def gps_callback(self, msg):
         self.get_logger().info(f"Received GPS data from ROS: {msg.latitude}, {msg.longitude}")
+        
+        # determine direction of travel
+        if self.last_gps_point is not None:
+            directory = math.atan2(
+                msg.longitude - self.last_gps_point[1],
+                msg.latitude - self.last_gps_point[0]
+            )
+            # filter the direction to prevent noise
+            if self.gps_direction is None:
+                self.gps_direction = directory
+            else:
+                Filter = 0.2
+                self.gps_direction = self.gps_direction * (1 - Filter) + directory * Filter
+
+            # self.gps_direction = math.degrees(self.gps_direction)
+            self.get_logger().info(f"Direction of travel: {self.gps_direction}")
+
+        self.last_gps_point = (msg.latitude, msg.longitude)
+
+        # Emit the GPS data to the client
         data = {
             "latitude": msg.latitude,
             "longitude": msg.longitude,
+            "direction": self.gps_direction,
         }
-        self.last_gps = (msg.latitude, msg.longitude)
-        self.socketio.emit('gps_data', json.dumps(data))  
+        self.socketio.emit('gps_data', json.dumps(data))
 
-        # Get the closest intersection
-        closest_intersection, closest_distance = self.get_closest_intersection(self.last_gps)
-        if closest_intersection is None:
-            self.get_logger().info("No intersections found")
+        # reset the current intersection and lane if GPS data is received
+        self.current_intersection_id = None
+        self.current_lane_id = None
+
+        # Get the closest Lane and Intersection
+        closest_intersection_obj, closest_lane, distance = self.get_closest_lane((msg.latitude, msg.longitude, self.gps_direction))
+        
+        if closest_intersection_obj is None:
+            self.get_logger().info("No lanes found")
+            return
+        if closest_lane is None:
+            self.get_logger().info(f"No lanes found in intersection {closest_intersection_obj.id}")
             return
         
-        # emit the closest intersection
-        closest_intersection_obj: models.Intersection = self.Map[closest_intersection]
-        closest_lane, distance = closest_intersection_obj.get_closest_lane(self.last_gps)
-        if closest_lane is not None:
-            self.get_logger().info(f"Closest lane in intersection {closest_intersection_obj.id}: {closest_lane}")
-            self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export()))
-        else:
-            self.get_logger().warning(f"No lanes found in intersection {closest_intersection_obj.id}")
-            self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export()))
+        # Emit the closest lane and intersection to the client
+        self.get_logger().info(f"Closest lane in intersection {closest_intersection_obj.id}: {closest_lane} distance: {distance}")
+        self.current_intersection_id = closest_intersection_obj.id
+        self.current_lane_id = closest_lane
+        self.socketio.emit('current_lane', json.dumps(
+        {
+            "intersection_id": closest_intersection_obj.id,
+            "lane_id": closest_lane,
+            "distance": distance
+        }
+        ))
+        self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export()))
 
     def mapem_callback(self, msg: v2xmsg.Mapem):
         for intersection in msg.map.intersections.intersectiongeometrylist:
@@ -155,26 +192,25 @@ class v2x_frontend_server(Node):
         return closest_intersection, closest_distance
 
     def get_closest_lane(self, gps_point: tuple):
-        # get the closest intersection
-        closest_intersection = None
-        closest_distance = float('inf')
+        closest_intersections = list()
         for intersectionID, intersection in self.Map.items():
             intersection: models.Intersection
             distance = intersection.get_distance_to_refpoint(gps_point)
-            if distance < closest_distance:
-                closest_distance = distance
-                closest_intersection = intersectionID
-            
+            if distance < MAX_INTERSECTION_DISTANCE:
+                closest_intersections.append(intersection)
 
-        # get the closest lane in the closest intersection
-        if closest_intersection is not None:
-            closest_intersection_obj : models.Intersection = self.Map[closest_intersection]
-            closest_lane = closest_intersection_obj.get_closest_lane(gps_point)
-            if closest_lane is not None:
-                self.get_logger().info(f"Closest lane in intersection {closest_intersection_obj.id}: {closest_lane.LaneID}")
-            else:
-                self.get_logger().warning(f"No lanes found in intersection {closest_intersection}")
+        min_distance = float('inf')
+        closest_lane = None
+        closest_intersection = None
+        for intersection in closest_intersections:
+            intersection: models.Intersection
+            lane, distance = intersection.get_closest_lane(gps_point)
+            if distance < min_distance:
+                min_distance = distance
+                closest_intersection = intersection
+                closest_lane = lane
 
+        return closest_intersection, closest_lane, min_distance
 
     def run_flask(self):
         # Start the background task only after Flask is running
