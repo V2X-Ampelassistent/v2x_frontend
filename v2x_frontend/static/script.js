@@ -23,6 +23,12 @@ socket.on('gps_data', (data) => {
   console.log('Parsed GPS data:', data);
 
   egoVehicle.setLatLng([data.latitude, data.longitude]);
+  direction = data.direction * Math.PI / 180;
+  egoDirection.setLatLngs([[data.latitude, data.longitude], [data.latitude + 0.000075 * Math.cos(direction), data.longitude + 0.000075 * Math.sin(direction)]]);
+
+  // reset current intersection id and lane id
+  current_intersection_id = null;
+  current_lane_id = null;
 
   // Follow GPS
   if (follow_gps) {
@@ -102,8 +108,8 @@ socket.on('intersection', (intersection_data) => {
         closeOnClick: false,
       })
       .setLatLng(ref_point)
-      .setContent(`Intersection ID: ${id}`)
-      // .openOn(map);
+      .setContent(`Intersection ID: ${intersection_id}`)
+    // .openOn(map);
 
     intersection_popups.push(popup);
 
@@ -122,10 +128,16 @@ socket.on('intersection', (intersection_data) => {
     let lane_path = lanes.paths[i]
 
     // Create a polyline for the lane
-    let lane_polyline = L.polyline(lane_path, { color: color, weight: 2 }).addTo(map);
-    intersection_elements[id].polyline.push(lane_polyline);
+    let lane_polyline = L.polyline(lane_path, { color: path_color, weight: 2 })
+      .addTo(map)
+      .on('click', function (e) {
+        console.warn(`Lane ID: ${lane.id} on intersection: ${intersection_id}`);
+        current_intersection_id = intersection_id;
+        current_lane_id = lane.id;
+      });
+    intersection_elements[intersection_id].polyline.push(lane_polyline);
   }
-
+  
   // Create a line for connecting the lanes
   for (let i = 0; i < lanes.connections.length; i++) {
     let lane_connection = lanes.connections[i]
@@ -142,6 +154,13 @@ socket.on('intersection', (intersection_data) => {
   }
 });
 
+
+socket.on('current_lane', (data) => {
+  data = JSON.parse(data);
+  current_intersection_id = data.intersection_id;
+  current_lane_id = data.lane_id;
+  console.log(`Current lane id: ${current_lane_id} on intersection: ${current_intersection_id} distance: ${data.distance}m`);
+});
 
 function randomcolor() {
   var letters = '0123456789ABCDEF';

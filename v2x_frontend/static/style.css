@@ -6,5 +6,15 @@ body {
 }	
 
 #map{
-    height: 98vh;
+    height: 100vh;
+}
+
+#follow_gps {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background-color: #fff;
+    padding: 10px;
+    border-radius: 5px;
 }
