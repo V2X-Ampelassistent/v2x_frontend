@@ -73,8 +73,8 @@ class Intersection:
             lane_id = lane.laneid.laneid
             if lane_id not in self.lanes:
                 self.lanes[lane_id] = Lane(lane, self.refPoint)
-            else:
-                self.lanes[lane_id].update(lane, self.refPoint)
+            # else:
+            #     self.lanes[lane_id].update(lane, self.refPoint)
 
     def export(self) -> dict:
         """Export the intersection as a leaflet object"""
@@ -92,7 +92,7 @@ class Intersection:
         for lane in self.lanes.values():
             lane: Lane
             
-            if not lane.laneType.vehicle: 
+            if "vehicle" not in  lane.laneType_list: 
                 continue
 
             color = "#FF0800"
@@ -150,7 +150,7 @@ class Intersection:
         min_distance = float('inf')
         for lane in self.lanes.values():
             lane: Lane
-            if not lane.laneType.vehicle: 
+            if "vehicle" not in lane.laneType_list:
                 continue
             
             if lane.egressApproach:
@@ -181,16 +181,26 @@ class Lane:
         self.directionalUse_egressPath = lane_data.laneattributes.directionaluse.egresspath
         self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath
         
-        self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
-        self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
+        self.laneType_list = list()
+        LANETYPES = ['vehicle', 'crosswalk', 'bikelane', 'sidewalk', 'median', 'striping', 'trackedvehicle', 'parking']
+        for lane_type in LANETYPES:
+            if getattr(lane_data.laneattributes.lanetype, lane_type):
+                self.laneType_list.append(lane_type)
+
+
+        MANEUVERS = ['maneuverstraightallowed', 'maneuverleftallowed', 'maneuverrightallowed', 'maneuveruturnallowed', 'maneuverleftturnonredallowed', 'maneuverrightturnonredallowed', 'maneuverlanechangeallowed', 'maneuvernostoppingallowed', 'yieldallwaysrequired', 'gowithhalt', 'caution', 'reserved1']
+        self.maneuver_list = list()
+
+        for maneuver in MANEUVERS:
+            if getattr(lane_data.maneuvers, maneuver):
+                self.maneuver_list.append(maneuver)    
+
         self.computed_lane: v2xmsg.Computedlane = lane_data.nodelist.computed
         self.nodes = self.create_node_(lane_data.nodelist.nodes)	
         self.connectsTo = [ConnectsTo(connect) for connect in lane_data.connectsto.connectstolist]
 
     def update(self, lane_data: v2xmsg.Genericlane, refPoint: dict):
         """Update the lane with new data"""
-        self.laneType: v2xmsg.Laneattributes = lane_data.laneattributes.lanetype
-        self.maneuvers: v2xmsg.Allowedmaneuvers = lane_data.maneuvers
         self.refPoint = refPoint
 
         # Update nodes and connectsTo
