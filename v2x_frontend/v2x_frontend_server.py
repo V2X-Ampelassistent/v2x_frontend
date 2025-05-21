@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
 import v2x_cohdainterfaces.msg as v2xmsg
+import v2x_services.srv as v2x_services
 
 import v2x_frontend.map_models as models
 
@@ -25,6 +26,13 @@ class v2x_frontend_server(Node):
         # Initialize ROS 2 first, so logger is available
         super().__init__('v2x_frontend_server')
         
+        # Intitialize Services
+        self.traffic_light_info_service = self.create_service(
+            v2x_services.TrafficLightInfo,
+            'TrafficLightInfo',
+            self.traffic_light_info_callback
+        )
+
         # Initialize Flask app
         self.app = Flask(__name__)
         self.app.static_folder = 'static'
@@ -174,6 +182,12 @@ class v2x_frontend_server(Node):
             else:
                 self.get_logger().warning(f"SPaT data received for unknown intersection ID: {intersectionID}")
 
+    def traffic_light_info_callback(self, request, response):
+        self.get_logger().info(f"Received TrafficLightInfo request: {request}")
+        # To trigger callback, run '''ros2 service call /TrafficLightInfo v2x_services/srv/TrafficLightInfo'''
+        response.myintersectionid = self.current_intersection_id
+        response.mylaneid = self.current_lane_id
+        return response
 
     def get_closest_intersection(self, gps_point: tuple):
         closest_intersection: models.Intersection = None
