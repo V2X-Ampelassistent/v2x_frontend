@@ -283,10 +283,10 @@ class Lane:
         end = np.array(end)[:2]
         point = np.array(point)[:2]
 
-        vec = (end - start) * 1132  # Approx. meters per degree latitude 
+        vec = (end - start) * 111320  # Approx. meters per degree latitude 
         vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
 
-        point_vec = (point - start) * 1132  # Approx. meters per degree latitude
+        point_vec = (point - start) * 111320  # Approx. meters per degree latitude
         point_vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
 
         vec_length_squared = np.dot(vec, vec)
