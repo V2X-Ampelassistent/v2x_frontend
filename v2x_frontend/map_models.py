@@ -2,8 +2,8 @@ import v2x_cohdainterfaces.msg as v2xmsg
 import numpy as np
 import math
 
-MAX_DETECTION_RADIUS = 5  # meters
-DEVIATION = 0.5  # Allowable deviation in radians
+MAX_DETECTION_RADIUS = 10  # meters
+DEVIATION = 40 # degrees
 
 class SignalGroup:
     STATE_LOOKUP = {
@@ -165,6 +165,7 @@ class Intersection:
             return None, min_distance
         
         if min_distance > MAX_DETECTION_RADIUS:
+            print(f"Closest lane is too far away: {min_distance}m")
             return None, min_distance
         
         return closest_lane.LaneID, min_distance
@@ -256,7 +257,8 @@ class Lane:
             
             # Check if direction is valid
             if node[2] is not None and point[2] is not None:
-                if abs(node[2] - point[2]) > DEVIATION:
+
+                if abs(node[2] - point[2]) % 360 > DEVIATION:
                     prev_node = node
                     continue
 
@@ -281,10 +283,10 @@ class Lane:
         end = np.array(end)[:2]
         point = np.array(point)[:2]
 
-        vec = (end - start) * 11320  # Approx. meters per degree latitude 
+        vec = (end - start) * 1132  # Approx. meters per degree latitude 
         vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
 
-        point_vec = (point - start) * 11320  # Approx. meters per degree latitude
+        point_vec = (point - start) * 1132  # Approx. meters per degree latitude
         point_vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
 
         vec_length_squared = np.dot(vec, vec)
@@ -338,18 +340,20 @@ class Node:
         # Calculate the delta meters in delta degrees
         if self.deltaX is not None and self.deltaY is not None:
             ref_lat = refPoint["lat"] / 10000000  # Convert to degrees
-            self.deltaLat = self.deltaY / 1.11320  # Approx. meters per degree latitude
-            self.deltaLon = self.deltaX / (1.11320 * math.cos(math.radians(ref_lat)))
+            self.deltaLat = self.deltaY / 1.1132  # Approx. meters per degree latitude
+            self.deltaLon = self.deltaX / (1.1132 * math.cos(math.radians(ref_lat)))
 
     def set_absolute_position(self, ref_lon: float, ref_lat: float):
         if self.lat is not None and self.lon is not None:
-            self.direction = math.atan2(ref_lon - self.lon, ref_lat - self.lat)
+            self.direction = math.atan2(ref_lon - self.lon, ref_lat - self.lat) + 2*math.pi
+            self.direction = math.degrees(self.direction) % 360
             return
         
         if self.deltaX is not None and self.deltaY is not None:
             self.lon = ref_lon + self.deltaLon
             self.lat = ref_lat + self.deltaLat
-            self.direction = math.atan2(-self.deltaX, -self.deltaY)
+            self.direction = math.atan2(-self.deltaX, -self.deltaY) + 2*math.pi
+            self.direction = math.degrees(self.direction) % 360
 
 class ConnectsTo:   
     def __init__(self, connection_data: v2xmsg.Connection):

@@ -41,7 +41,7 @@ class v2x_frontend_server(Node):
         
         # Start ROS 2 subscription
         self.GPS_subscription = self.create_subscription(
-            NavSatFix,
+            v2xmsg.GPS,
             'Cohda_Signals/GPS',
             self.gps_callback,
             10
@@ -90,31 +90,32 @@ class v2x_frontend_server(Node):
 
 
     # Callbacks
-    def gps_callback(self, msg):
-        self.get_logger().info(f"Received GPS data from ROS: {msg.latitude}, {msg.longitude}")
+    def gps_callback(self, msg: v2xmsg.GPS):
+        self.get_logger().info(f"Received GPS data from ROS: {msg.lat}, {msg.lon}")
         
-        # determine direction of travel
-        if self.last_gps_point is not None:
-            directory = math.atan2(
-                msg.longitude - self.last_gps_point[1],
-                msg.latitude - self.last_gps_point[0]
-            )
-            # filter the direction to prevent noise
-            if self.gps_direction is None:
-                self.gps_direction = directory
-            else:
-                Filter = 0.2
-                self.gps_direction = self.gps_direction * (1 - Filter) + directory * Filter
+        # # determine direction of travel
+        # if self.last_gps_point is not None:
+        #     directory = math.atan2(
+        #         msg.lon - self.last_gps_point[1],
+        #         msg.lat - self.last_gps_point[0]
+        #     )
+        #     # filter the direction to prevent noise
+        #     if self.gps_direction is None:
+        #         self.gps_direction = directory
+        #     else:
+        #         Filter = 0.2
+        #         self.gps_direction = self.gps_direction * (1 - Filter) + directory * Filter
 
-            # self.gps_direction = math.degrees(self.gps_direction)
-            self.get_logger().info(f"Direction of travel: {self.gps_direction}")
+        #     # self.gps_direction = math.degrees(self.gps_direction)
+        #     self.get_logger().info(f"Direction of travel: {self.gps_direction}")
 
-        self.last_gps_point = (msg.latitude, msg.longitude)
+        self.gps_direction = msg.track % 360
+        self.get_logger().info(f"Direction of travel: {self.gps_direction}")
 
         # Emit the GPS data to the client
         data = {
-            "latitude": msg.latitude,
-            "longitude": msg.longitude,
+            "latitude": msg.lat,
+            "longitude": msg.lon,
             "direction": self.gps_direction,
         }
         self.socketio.emit('gps_data', json.dumps(data))
@@ -124,10 +125,10 @@ class v2x_frontend_server(Node):
         self.current_lane_id = None
 
         # Get the closest Lane and Intersection
-        closest_intersection_obj, closest_lane, distance = self.get_closest_lane((msg.latitude, msg.longitude, self.gps_direction))
+        closest_intersection_obj, closest_lane, distance = self.get_closest_lane((msg.lat, msg.lon, self.gps_direction))
         
         if closest_intersection_obj is None:
-            self.get_logger().info("No lanes found")
+            self.get_logger().info("No intersection found")
             return
         if closest_lane is None:
             self.get_logger().info(f"No lanes found in intersection {closest_intersection_obj.id}")
@@ -198,6 +199,10 @@ class v2x_frontend_server(Node):
             distance = intersection.get_distance_to_refpoint(gps_point)
             if distance < MAX_INTERSECTION_DISTANCE:
                 closest_intersections.append(intersection)
+
+        if len(closest_intersections) == 0:
+            self.get_logger().info("No intersections found within the maximum distance")
+            return None, None, None
 
         min_distance = float('inf')
         closest_lane = None
