@@ -12,8 +12,9 @@ import json
 import logging
 from threading import Lock
 
+import math
 
-Map = dict()
+MAX_INTERSECTION_DISTANCE = 500  # meters
 
 class v2x_frontend_server(Node):
     def __init__(self):
@@ -40,7 +41,7 @@ class v2x_frontend_server(Node):
         
         # Start ROS 2 subscription
         self.GPS_subscription = self.create_subscription(
-            NavSatFix,
+            v2xmsg.GPS,
             'Cohda_Signals/GPS',
             self.gps_callback,
             10
@@ -62,6 +63,14 @@ class v2x_frontend_server(Node):
         
         self.get_logger().info("ROS2 node and subscription initialized")
 
+        # variables
+        self.last_gps_point = None
+        self.gps_direction = None
+        self.Map = dict()
+        self.current_intersection_id = None
+        self.current_lane_id = None
+
+
     def get_logger(self):
         return super().get_logger()  # Use ROS2 logger
 
@@ -81,41 +90,132 @@ class v2x_frontend_server(Node):
 
 
     # Callbacks
-    def gps_callback(self, msg):
-        self.get_logger().info(f"Received GPS data from ROS: {msg.latitude}, {msg.longitude}")
+    def gps_callback(self, msg: v2xmsg.GPS):
+        self.get_logger().info(f"Received GPS data from ROS: {msg.lat}, {msg.lon}")
+        
+        # # determine direction of travel
+        # if self.last_gps_point is not None:
+        #     directory = math.atan2(
+        #         msg.lon - self.last_gps_point[1],
+        #         msg.lat - self.last_gps_point[0]
+        #     )
+        #     # filter the direction to prevent noise
+        #     if self.gps_direction is None:
+        #         self.gps_direction = directory
+        #     else:
+        #         Filter = 0.2
+        #         self.gps_direction = self.gps_direction * (1 - Filter) + directory * Filter
+
+        #     # self.gps_direction = math.degrees(self.gps_direction)
+        #     self.get_logger().info(f"Direction of travel: {self.gps_direction}")
+
+        self.gps_direction = msg.track % 360
+        self.get_logger().info(f"Direction of travel: {self.gps_direction}")
+
+        # Emit the GPS data to the client
         data = {
-            "latitude": msg.latitude,
-            "longitude": msg.longitude,
+            "latitude": msg.lat,
+            "longitude": msg.lon,
+            "direction": self.gps_direction,
         }
         self.socketio.emit('gps_data', json.dumps(data))
+
+        # reset the current intersection and lane if GPS data is received
+        self.current_intersection_id = None
+        self.current_lane_id = None
+
+        # Get the closest Lane and Intersection
+        closest_intersection_obj, closest_lane, distance = self.get_closest_lane((msg.lat, msg.lon, self.gps_direction))
         
+        if closest_intersection_obj is None:
+            self.get_logger().info("No intersection found")
+            return
+        if closest_lane is None:
+            self.get_logger().info(f"No lanes found in intersection {closest_intersection_obj.id}")
+            return
+        
+        # Emit the closest lane and intersection to the client
+        self.get_logger().info(f"Closest lane in intersection {closest_intersection_obj.id}: {closest_lane} distance: {distance}")
+        self.current_intersection_id = closest_intersection_obj.id
+        self.current_lane_id = closest_lane
+        self.socketio.emit('current_lane', json.dumps(
+        {
+            "intersection_id": closest_intersection_obj.id,
+            "lane_id": closest_lane,
+            "distance": distance
+        }
+        ))
+        self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export()))
+
     def mapem_callback(self, msg: v2xmsg.Mapem):
         for intersection in msg.map.intersections.intersectiongeometrylist:
             intersection: v2xmsg.Intersectiongeometry
             intersectionID: str = f"{msg.header.stationid.stationid}_{intersection.id.id.intersectionid}"
-
-            if intersectionID in Map:
-                Map[intersectionID].update(intersection)
-            else:
-                Map[intersectionID] = models.Intersection(intersection, intersectionID)
             
-            self.get_logger().info(f"Intersection ID: {intersectionID}")
-            # self.get_logger().info(f"Intersection data: {Map[intersectionID]}")  
 
-            # Emit the Lane path to the client
-            self.socketio.emit('intersection', json.dumps(Map[intersectionID].export()))
+            if intersectionID in self.Map:
+                self.Map[intersectionID].update(intersection)
+            else:
+                self.Map[intersectionID] = models.Intersection(intersection, intersectionID)
+            
+            intersection :models.Intersection = self.Map[intersectionID]
+            self.socketio.emit('intersection', json.dumps(intersection.export()))            
+
 
     def spatem_callback(self, msg: v2xmsg.Spatem):
         for intersection in msg.spat.intersections.intersectionstatelist:
             intersection: v2xmsg.Intersection
             intersectionID: str = f"{msg.header.stationid.stationid}_{intersection.id.id.intersectionid}"
 
-            if intersectionID in Map:
-                Map[intersectionID].update_spat(intersection)
+            if intersectionID in self.Map:
+                self.Map[intersectionID].update_spat(intersection)
                 self.get_logger().info(f"SPaT data for Intersection ID: {intersectionID}")
-                self.socketio.emit('intersection', json.dumps(Map[intersectionID].export()))
+                self.socketio.emit('intersection', json.dumps(self.Map[intersectionID].export()))
             else:
                 self.get_logger().warning(f"SPaT data received for unknown intersection ID: {intersectionID}")
+
+
+    def get_closest_intersection(self, gps_point: tuple):
+        closest_intersection: models.Intersection = None
+        closest_distance = float('inf')
+        for intersectionID, intersection in self.Map.items():
+            intersection: models.Intersection
+            distance = intersection.get_distance_to_refpoint(gps_point)
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_intersection = intersectionID
+
+        if closest_intersection is not None:
+            self.get_logger().info(f"Closest intersection: {closest_intersection}")
+        else:
+            self.get_logger().warning("No intersections found")
+
+        return closest_intersection, closest_distance
+
+    def get_closest_lane(self, gps_point: tuple):
+        closest_intersections = list()
+        for intersectionID, intersection in self.Map.items():
+            intersection: models.Intersection
+            distance = intersection.get_distance_to_refpoint(gps_point)
+            if distance < MAX_INTERSECTION_DISTANCE:
+                closest_intersections.append(intersection)
+
+        if len(closest_intersections) == 0:
+            self.get_logger().info("No intersections found within the maximum distance")
+            return None, None, None
+
+        min_distance = float('inf')
+        closest_lane = None
+        closest_intersection = None
+        for intersection in closest_intersections:
+            intersection: models.Intersection
+            lane, distance = intersection.get_closest_lane(gps_point)
+            if distance < min_distance:
+                min_distance = distance
+                closest_intersection = intersection
+                closest_lane = lane
+
+        return closest_intersection, closest_lane, min_distance
 
     def run_flask(self):
         # Start the background task only after Flask is running
