@@ -137,7 +137,7 @@ socket.on('intersection', (intersection_data) => {
     if (intersection_id === current_intersection_id && lane.id === current_lane_id) {
       path_color = "#FF00FF";
     }
-  
+
     // Create a polyline for the lane
     let lane_polyline = L.polyline(lane_path, { color: path_color, weight: 2 })
       .addTo(map)
@@ -147,14 +147,13 @@ socket.on('intersection', (intersection_data) => {
         current_lane_id = lane.id;
       });
     intersection_elements[intersection_id].polyline.push(lane_polyline);
-  }
-  
-  // Create a line for connecting the lanes
-  for (let i = 0; i < lanes.connections.length; i++) {
-    let lane_connection = lanes.connections[i]
-    start = lane_connection.startpoint;
-    end = lane_connection.endpoint;
-    state = lane_connection.state;
+
+    // Create a line for connecting the lanes
+    for (let i = 0; i < lane.connections.length; i++) {
+      let lane_connection = lane.connections[i]
+      start = lane_connection.startpoint;
+      end = lane_connection.endpoint;
+      state = lane_connection.state;
 
       color = STATE_LOOKUP[state];
       if (color == undefined) {
@@ -163,6 +162,7 @@ socket.on('intersection', (intersection_data) => {
 
       intersection_elements[intersection_id].connections.push(L.polyline([start, end], { color: color, weight: 2 }).addTo(map));
     }
+  }
 });
 
 

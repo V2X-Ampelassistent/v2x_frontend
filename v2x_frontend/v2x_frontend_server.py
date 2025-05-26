@@ -108,6 +108,7 @@ class v2x_frontend_server(Node):
 
         #     # self.gps_direction = math.degrees(self.gps_direction)
         #     self.get_logger().info(f"Direction of travel: {self.gps_direction}")
+        # self.last_gps_point = (lat, lon)
 
         self.gps_direction = msg.track % 360
         self.get_logger().info(f"Direction of travel: {self.gps_direction}")
@@ -138,14 +139,14 @@ class v2x_frontend_server(Node):
         self.get_logger().info(f"Closest lane in intersection {closest_intersection_obj.id}: {closest_lane} distance: {distance}")
         self.current_intersection_id = closest_intersection_obj.id
         self.current_lane_id = closest_lane
-        self.socketio.emit('current_lane', json.dumps(
-        {
-            "intersection_id": closest_intersection_obj.id,
-            "lane_id": closest_lane,
-            "distance": distance
-        }
-        ))
-        self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export()))
+        # self.socketio.emit('current_lane', json.dumps(
+        # {
+        #     "intersection_id": closest_intersection_obj.id,
+        #     "lane_id": closest_lane,
+        #     "distance": distance
+        # }
+        # ))
+        self.socketio.emit('intersection', json.dumps(closest_intersection_obj.export(self.current_lane_id)))
 
     def mapem_callback(self, msg: v2xmsg.Mapem):
         for intersection in msg.map.intersections.intersectiongeometrylist:
@@ -159,7 +160,11 @@ class v2x_frontend_server(Node):
                 self.Map[intersectionID] = models.Intersection(intersection, intersectionID)
             
             intersection :models.Intersection = self.Map[intersectionID]
-            self.socketio.emit('intersection', json.dumps(intersection.export()))            
+            current_lane = None
+            if self.current_intersection_id == intersectionID:
+                current_lane = self.current_lane_id
+
+            self.socketio.emit('intersection', json.dumps(intersection.export(current_lane)))            
 
 
     def spatem_callback(self, msg: v2xmsg.Spatem):
@@ -170,7 +175,11 @@ class v2x_frontend_server(Node):
             if intersectionID in self.Map:
                 self.Map[intersectionID].update_spat(intersection)
                 self.get_logger().info(f"SPaT data for Intersection ID: {intersectionID}")
-                self.socketio.emit('intersection', json.dumps(self.Map[intersectionID].export()))
+
+                current_lane = None
+                if self.current_intersection_id == intersectionID:
+                    current_lane = self.current_lane_id
+                self.socketio.emit('intersection', json.dumps(self.Map[intersectionID].export(current_lane)))
             else:
                 self.get_logger().warning(f"SPaT data received for unknown intersection ID: {intersectionID}")
 

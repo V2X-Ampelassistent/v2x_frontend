@@ -76,7 +76,7 @@ class Intersection:
             # else:
             #     self.lanes[lane_id].update(lane, self.refPoint)
 
-    def export(self) -> dict:
+    def export(self, current_lane_id = None) -> dict:
         """Export the intersection as a leaflet object"""
         intersection_export = {
             "id": self.id,
@@ -100,6 +100,9 @@ class Intersection:
                 color = "#0000FF"
             elif lane.directionalUse_egressPath:
                 color = "#FF7F00"
+
+            if lane.LaneID == current_lane_id:
+                color = "#00FF00"
 
             lane_export = {
                 "id": lane.LaneID,
@@ -154,12 +157,17 @@ class Intersection:
                 continue
             
             if lane.egressApproach:
-                continue
+                continue                  
 
             distance = lane.get_distance_to_point(point)
             if distance < min_distance:
                 min_distance = distance
                 closest_lane = lane
+
+            # DEBUG
+            # if self.id == "16734687_1":
+            #     if lane.LaneID == 7:
+            #         print(f"Distance to lane {lane.LaneID}: {distance}m")
 
         if closest_lane is None:
             return None, min_distance
