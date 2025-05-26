@@ -73,8 +73,8 @@ class Intersection:
             lane_id = lane.laneid.laneid
             if lane_id not in self.lanes:
                 self.lanes[lane_id] = Lane(lane, self.refPoint)
-            # else:
-            #     self.lanes[lane_id].update(lane, self.refPoint)
+            else:
+                self.lanes[lane_id].update(lane, self.refPoint)
 
     def export(self, current_lane_id = None) -> dict:
         """Export the intersection as a leaflet object"""
