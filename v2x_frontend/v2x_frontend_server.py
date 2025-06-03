@@ -211,7 +211,7 @@ class v2x_frontend_server(Node):
         
 
     def traffic_light_info_callback(self, request, response):
-        self.get_logger().warn(f"Received TrafficLightInfo request: {request}")
+        self.get_logger().info(f"Received TrafficLightInfo request: {request}")
         # To trigger callback, run '''ros2 service call /TrafficLightInfo v2x_services/srv/TrafficLightInfo'''
         current_intersection: models.Intersection = self.Map.get(self.current_intersection_id, None)
         if current_intersection is None:
@@ -223,7 +223,7 @@ class v2x_frontend_server(Node):
         return response
 
     def warning_info_display_callback(self, request, response):
-        self.get_logger().warn(f"Received WarningInfoDisplay request: {request}")
+        self.get_logger().info(f"Received WarningInfoDisplay request: {request}")
         type = request.type
         infomessage = request.infomessage
 
