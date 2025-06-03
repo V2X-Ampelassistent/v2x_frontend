@@ -286,7 +286,7 @@ class v2x_frontend_server(Node):
     def run_flask(self):
         # Start the background task only after Flask is running
         self.socketio.start_background_task(rclpy.spin, self)
-        self.socketio.run(self.app, host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+        self.socketio.run(self.app, host="0.0.0.0", port=5000, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
 
 
 
