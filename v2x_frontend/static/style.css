@@ -18,3 +18,23 @@ body {
     padding: 10px;
     border-radius: 5px;
 }
+
+.panel {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 1000;
+    padding: 10px;
+    border-radius: 5px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #fff;
+}
+
+#warning_panel{
+    background-color: #ff9531;
+}
+
+#info_panel {
+    background-color: #3131ff;
+}

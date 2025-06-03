@@ -191,3 +191,45 @@ follow_gps_button.addEventListener("click", function () {
     follow_gps_button.innerHTML = "Follow GPS";
   }
 });
+
+
+// Panels
+
+const warningPanel = document.getElementById('warning_panel');
+const infoPanel = document.getElementById('info_panel');
+
+socket.on('warning', (data) => {
+  data = JSON.parse(data);
+  console.log('Warning received:', data);
+
+  // Set the warning text in the warning panel
+  warningPanel.innerHTML = data.message;
+
+  // hide the info panel
+  infoPanel.hidden = true;
+
+  // Show the warning panel
+  warningPanel.hidden = false;
+
+  // hide the warning panel after 5 seconds
+  setTimeout(() => {
+    warningPanel.hidden = true;
+  }, 5000);
+
+});
+
+socket.on('info', (data) => {
+  data = JSON.parse(data);
+  console.log('Info received:', data);
+
+  // Set the info text in the info panel
+  infoPanel.innerHTML = data.message;
+
+  // Show the info panel
+  infoPanel.hidden = false;
+
+  // hide the info panel after 5 seconds
+  setTimeout(() => {
+    infoPanel.hidden = true;
+  }, 5000);
+});

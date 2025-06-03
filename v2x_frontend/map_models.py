@@ -2,7 +2,7 @@ import v2x_cohdainterfaces.msg as v2xmsg
 import numpy as np
 import math
 
-MAX_DETECTION_RADIUS = 10  # meters
+MAX_DETECTION_RADIUS = 100  # meters
 DEVIATION = 40 # degrees
 
 class SignalGroup:
@@ -23,11 +23,13 @@ class SignalGroup:
 
     def __init__(self, signal_group_data: v2xmsg.Signalgroupid):
         self.id = signal_group_data.signalgroupid
-        self.state = None
+        self.state_a_lookup = None
+        self.state_b_lookup = None  # Not used in this implementation, but can be added if needed
 
     def update_state(self, state: v2xmsg.Movementphasestate):
-        self.state = SignalGroup.STATE_LOOKUP.get(state.movementphasestate, None)
-        if self.state is None:
+        self.state_b_lookup = state.movementphasestate
+        self.state_a_lookup = SignalGroup.STATE_LOOKUP.get(state.movementphasestate, None)
+        if self.state_a_lookup is None:
             print(f"Unknown state: {state.movementphasestate}")
 
 
@@ -76,6 +78,16 @@ class Intersection:
             else:
                 self.lanes[lane_id].update(lane, self.refPoint)
 
+    def get_state_for_lane(self, lane_id: str) -> str:
+        """Get the state of the signal group for a lane"""
+        for connect in self.lanes[lane_id].connectsTo:
+            connect: ConnectsTo
+            if connect.signalGroup in self.signalGroups:
+                signalGroup: SignalGroup = self.signalGroups[connect.signalGroup]
+                if signalGroup.state_b_lookup is not None:
+                    return signalGroup.state_b_lookup
+
+
     def export(self, current_lane_id = None) -> dict:
         """Export the intersection as a leaflet object"""
         intersection_export = {
@@ -102,7 +114,7 @@ class Intersection:
                 color = "#FF7F00"
 
             if lane.LaneID == current_lane_id:
-                color = "#00FF00"
+                color = "#00FFFF"
 
             lane_export = {
                 "id": lane.LaneID,
@@ -124,7 +136,7 @@ class Intersection:
                 state = None
                 if connect.signalGroup in self.signalGroups.keys():
                     signalGroup: SignalGroup = self.signalGroups[connect.signalGroup]
-                    state = signalGroup.state
+                    state = signalGroup.state_a_lookup
                 
                 lane_export["connections"].append({
                     "startpoint": startpoint,
@@ -187,7 +199,9 @@ class Lane:
         self.egressApproach = lane_data.egressapproach.approachid
 
         self.directionalUse_egressPath = lane_data.laneattributes.directionaluse.egresspath
-        self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath
+        self.directionalUse_ingressPath = lane_data.laneattributes.directionaluse.ingresspath,
+
+        self.state = None
         
         self.laneType_list = list()
         LANETYPES = ['vehicle', 'crosswalk', 'bikelane', 'sidewalk', 'median', 'striping', 'trackedvehicle', 'parking']
@@ -309,44 +323,8 @@ class Lane:
 
         is_on_segment = True
 
-        _, is_on_segment = self.p_distance(point[0], point[1], start[0], start[1], end[0], end[1])
-
         return distance, is_on_segment
 
-
-    def p_distance(self, x, y, x1, y1, x2, y2):
-        A = x - x1
-        B = y - y1
-        C = x2 - x1
-        D = y2 - y1
-
-        dot = A * C + B * D
-        len_sq = C * C + D * D
-        param = -1
-
-        if len_sq != 0:
-            param = dot / len_sq
-
-        is_on_segment = False
-        if param < 0 and param >= 1:
-            is_on_segment = True
-
-        if param < 0:
-            xx = x1
-            yy = y1
-        elif param > 1:
-            xx = x2
-            yy = y2
-        else:
-            xx = x1 + param * C
-            yy = y1 + param * D
-
-        dx = x - xx
-        dy = y - yy
-
-        distance = math.sqrt(dx * dx + dy * dy)
-
-        return distance, is_on_segment
 
 class Node:
     def __init__(self, node_data: v2xmsg.Nodexy, refPoint: dict):

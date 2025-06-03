@@ -3,7 +3,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
 import v2x_cohdainterfaces.msg as v2xmsg
 import v2x_services.srv as v2x_services
-
+import can_bridge.msg as canmsg
 import v2x_frontend.map_models as models
 
 from flask import Flask, render_template
@@ -31,6 +31,12 @@ class v2x_frontend_server(Node):
             v2x_services.TrafficLightInfo,
             'TrafficLightInfo',
             self.traffic_light_info_callback
+        )
+
+        self.warning_info_display = self.create_service(
+            v2x_services.WarningInfoDisplay,
+            'WarningInfoDisplay',
+            self.warning_info_display_callback
         )
 
         # Initialize Flask app
@@ -69,6 +75,13 @@ class v2x_frontend_server(Node):
             10
         )
         
+        self.CAN_subscription = self.create_subscription(
+            canmsg.EvitoState,
+            'EvitoState',
+            self.can_callback,
+            10
+        )
+
         self.get_logger().info("ROS2 node and subscription initialized")
 
         # variables
@@ -77,6 +90,7 @@ class v2x_frontend_server(Node):
         self.Map = dict()
         self.current_intersection_id = None
         self.current_lane_id = None
+        self.last_can_msg = None
 
 
     def get_logger(self):
@@ -191,12 +205,41 @@ class v2x_frontend_server(Node):
             else:
                 self.get_logger().warning(f"SPaT data received for unknown intersection ID: {intersectionID}")
 
+    def can_callback(self, msg: canmsg.EvitoState):
+        # self.get_logger().info(f"Received CAN data")
+        self.last_can_msg = msg
+        
+
     def traffic_light_info_callback(self, request, response):
-        self.get_logger().info(f"Received TrafficLightInfo request: {request}")
+        self.get_logger().warn(f"Received TrafficLightInfo request: {request}")
         # To trigger callback, run '''ros2 service call /TrafficLightInfo v2x_services/srv/TrafficLightInfo'''
-        response.myintersectionid = self.current_intersection_id
-        response.mylaneid = self.current_lane_id
+        current_intersection: models.Intersection = self.Map.get(self.current_intersection_id, None)
+        if current_intersection is None:
+            self.get_logger().warning("No current intersection found")
+            return response
+        movement_phase_state = current_intersection.get_state_for_lane(self.current_lane_id)
+
+        response.movementphasestate = str(movement_phase_state)
         return response
+
+    def warning_info_display_callback(self, request, response):
+        self.get_logger().warn(f"Received WarningInfoDisplay request: {request}")
+        type = request.type
+        infomessage = request.infomessage
+
+        if type == 1:  # Warning
+            self.socketio.emit('warning', json.dumps({
+                "type": "warning",
+                "message": infomessage
+            }))
+        elif type == 0:
+            self.socketio.emit('info', json.dumps({
+                "type": "info",
+                "message": infomessage
+            }))
+
+        return response
+
 
     def get_closest_intersection(self, gps_point: tuple):
         closest_intersection: models.Intersection = None
