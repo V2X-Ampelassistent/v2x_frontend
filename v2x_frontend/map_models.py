@@ -301,23 +301,50 @@ class Lane:
         end = np.array(end)[:2]
         point = np.array(point)[:2]
 
-        vec = (end - start) * 111320  # Approx. meters per degree latitude 
-        vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
+        v1 = point - start
+        v2 = point - end
+        v3 = end - start
 
-        point_vec = (point - start) * 111320  # Approx. meters per degree latitude
-        point_vec[0] *= math.cos(math.radians(start[0]))  # Approx. meters per degree longitude
+        distance = np.linalg.norm(np.cross(v1, v2)) / np.linalg.norm(v3)
 
-        vec_length_squared = np.dot(vec, vec)
-        if vec_length_squared == 0:
-            return np.linalg.norm(point - start), False  # Start and end are the same
+        is_on_segment = True
 
-        # Projection of point_vec onto vec
-        t = np.dot(point_vec, vec) / vec_length_squared
-        projection = start + t * vec
+        _, is_on_segment = self.p_distance(point[0], point[1], start[0], start[1], end[0], end[1])
 
-        # Clamp t to [0, 1] to check if projection lies on the segment
-        is_on_segment = 0 <= t <= 1
-        distance = np.linalg.norm(point - projection)
+        return distance, is_on_segment
+
+
+    def p_distance(self, x, y, x1, y1, x2, y2):
+        A = x - x1
+        B = y - y1
+        C = x2 - x1
+        D = y2 - y1
+
+        dot = A * C + B * D
+        len_sq = C * C + D * D
+        param = -1
+
+        if len_sq != 0:
+            param = dot / len_sq
+
+        is_on_segment = False
+        if param < 0 and param >= 1:
+            is_on_segment = True
+
+        if param < 0:
+            xx = x1
+            yy = y1
+        elif param > 1:
+            xx = x2
+            yy = y2
+        else:
+            xx = x1 + param * C
+            yy = y1 + param * D
+
+        dx = x - xx
+        dy = y - yy
+
+        distance = math.sqrt(dx * dx + dy * dy)
 
         return distance, is_on_segment
 
