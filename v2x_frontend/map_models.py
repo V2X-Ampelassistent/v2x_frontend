@@ -315,13 +315,23 @@ class Lane:
         end = np.array(end)[:2]
         point = np.array(point)[:2]
 
-        v1 = point - start
-        v2 = point - end
-        v3 = end - start
-
-        distance = np.linalg.norm(np.cross(v1, v2)) / np.linalg.norm(v3)
+        start_to_point_vector = point - start
+        end_to_point_vector = point - end
+        line_segment_vector = end - start
 
         is_on_segment = True
+        
+        # angle line segment with point to start vector
+        alpha = np.arccos(np.clip(np.dot(start_to_point_vector, line_segment_vector) / (np.linalg.norm(start_to_point_vector) * np.linalg.norm(line_segment_vector)), -1.0, 1.0))
+        beta = np.pi - np.arccos(np.clip(np.dot(end_to_point_vector, line_segment_vector) / (np.linalg.norm(end_to_point_vector) * np.linalg.norm(line_segment_vector)), -1.0, 1.0))
+
+        if alpha > np.pi / 2 or beta > np.pi / 2:
+            # point is outside the segment
+            distance = float('inf')
+            is_on_segment = False
+            return distance, is_on_segment
+
+        distance = np.linalg.norm(np.cross(start_to_point_vector, end_to_point_vector)) / np.linalg.norm(line_segment_vector)
 
         return distance, is_on_segment
 
